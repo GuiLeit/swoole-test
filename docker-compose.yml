@@ -5,6 +5,19 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "9501:9501"
+      - "9501:9501"  # WebSocket server
+      - "8080:8080"  # Webhook server
     volumes:
       - .:/app
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

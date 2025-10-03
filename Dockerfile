@@ -1,5 +1,4 @@
 FROM php:8.2-cli-alpine 
-# Or another suitable base image like php:8.2-fpm-alpine
 
 # Install necessary dependencies for Swoole
 RUN apk add --no-cache \
@@ -13,10 +12,10 @@ RUN apk add --no-cache \
     curl-dev \
     postgresql-dev
 
-# Update PECL channel and install Swoole extension
+# Update PECL channel and install Swoole and Redis extensions
 RUN pecl channel-update pecl.php.net \
-    && pecl install openswoole \
-    && docker-php-ext-enable openswoole
+    && pecl install openswoole redis \
+    && docker-php-ext-enable openswoole redis
 
 # Set your working directory inside the container
 WORKDIR /app
@@ -27,5 +26,5 @@ COPY . /app
 # Expose the port your Swoole server will listen on
 EXPOSE 9501
 
-# Command to run your Swoole server when the container starts
-CMD ["php", "server.php"]
+# Command to run both webhook.php and server.php in the background
+CMD ["sh", "-c", "php webhook.php & php server.php"]

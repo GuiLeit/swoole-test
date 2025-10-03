@@ -2,27 +2,206 @@
 <html>
     <head>
         <title>Swoole WebSocket Client</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+                background-color: #f5f5f5;
+            }
+            .container {
+                max-width: 800px;
+                margin: 0 auto;
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            #messages {
+                height: 400px;
+                overflow-y: auto;
+                border: 1px solid #ddd;
+                padding: 10px;
+                margin-bottom: 20px;
+                background-color: #fafafa;
+            }
+            .message {
+                margin-bottom: 10px;
+                padding: 8px;
+                border-radius: 4px;
+            }
+            .user-message {
+                background-color: #e3f2fd;
+                border-left: 4px solid #2196f3;
+            }
+            .webhook-message {
+                background-color: #f3e5f5;
+                border-left: 4px solid #9c27b0;
+            }
+            .system-message {
+                background-color: #e8f5e8;
+                border-left: 4px solid #4caf50;
+                font-style: italic;
+            }
+            .input-group {
+                display: flex;
+                gap: 10px;
+            }
+            #messageInput {
+                flex: 1;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            #sendButton {
+                padding: 10px 20px;
+                background-color: #2196f3;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+            #sendButton:hover {
+                background-color: #1976d2;
+            }
+            .status {
+                margin-bottom: 20px;
+                padding: 10px;
+                border-radius: 4px;
+            }
+            .connected {
+                background-color: #e8f5e8;
+                color: #2e7d32;
+            }
+            .disconnected {
+                background-color: #ffebee;
+                color: #c62828;
+            }
+            .timestamp {
+                font-size: 0.8em;
+                color: #666;
+            }
+        </style>
     </head>
     <body>
-        <h1>WebSocket Client</h1>
-        <div id="messages"></div>
-        <input type="text" id="messageInput" placeholder="Type your message here..." />
-        <button id="sendButton">Send</button>
+        <div class="container">
+            <h1>WebSocket Client</h1>
+            <div id="status" class="status disconnected">Connecting...</div>
+            
+            <div id="messages"></div>
+            
+            <div class="input-group">
+                <input type="text" id="messageInput" placeholder="Type your message here..." />
+                <button id="sendButton">Send</button>
+            </div>
+            
+            <p><strong>Instructions:</strong></p>
+            <ul>
+                <li>Type messages in the input field to send them to other connected clients</li>
+                <li>Webhook messages will appear automatically when received</li>
+                <li>Test webhook: <code>curl -X POST http://localhost:8080 -H "Content-Type: application/json" -d '{"test": "Hello from webhook!"}'</code></li>
+            </ul>
+        </div>
 
         <script>
-            const ws = new WebSocket('ws://localhost:9501');
+            const messagesDiv = document.getElementById('messages');
+            const statusDiv = document.getElementById('status');
+            const messageInput = document.getElementById('messageInput');
+            const sendButton = document.getElementById('sendButton');
 
-            ws.onmessage = function(event) {
-                const messagesDiv = document.getElementById('messages');
-                const data = JSON.parse(event.data);
-                messagesDiv.innerHTML += '<p><strong>' + data.from + ':</strong> ' + data.message + '</p>';
-            };
+            let ws = null;
 
-            document.getElementById('sendButton').onclick = function() {
-                const messageInput = document.getElementById('messageInput');
-                ws.send(messageInput.value);
-                messageInput.value = '';
-            };
+            function connect() {
+                ws = new WebSocket('ws://localhost:9501');
+
+                ws.onopen = function() {
+                    statusDiv.textContent = 'Connected to WebSocket server';
+                    statusDiv.className = 'status connected';
+                    sendButton.disabled = false;
+                };
+
+                ws.onclose = function() {
+                    statusDiv.textContent = 'Disconnected from WebSocket server';
+                    statusDiv.className = 'status disconnected';
+                    sendButton.disabled = true;
+                    
+                    // Try to reconnect after 3 seconds
+                    setTimeout(connect, 3000);
+                };
+
+                ws.onerror = function(error) {
+                    console.log('WebSocket error:', error);
+                };
+
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        addMessage(data);
+                    } catch (e) {
+                        console.error('Error parsing message:', e);
+                    }
+                };
+            }
+
+            function addMessage(data) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message';
+                
+                const timestamp = new Date().toLocaleTimeString();
+                
+                if (data.type === 'webhook_message') {
+                    messageDiv.className += ' webhook-message';
+                    const webhookData = data.data;
+                    messageDiv.innerHTML = `
+                        <strong>📡 Webhook Message</strong> <span class="timestamp">${timestamp}</span><br>
+                        <strong>Source:</strong> ${webhookData.source}<br>
+                        <strong>Data:</strong> <pre>${JSON.stringify(webhookData.data, null, 2)}</pre>
+                    `;
+                } else if (data.type === 'user_message') {
+                    messageDiv.className += ' user-message';
+                    messageDiv.innerHTML = `
+                        <strong>💬 User ${data.from}:</strong> <span class="timestamp">${timestamp}</span><br>
+                        ${data.message}
+                    `;
+                } else if (data.type === 'system') {
+                    messageDiv.className += ' system-message';
+                    messageDiv.innerHTML = `
+                        <strong>ℹ️ System:</strong> <span class="timestamp">${timestamp}</span><br>
+                        ${data.message}
+                    `;
+                }
+                
+                messagesDiv.appendChild(messageDiv);
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            }
+
+            function sendMessage() {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const message = messageInput.value.trim();
+                    if (message) {
+                        ws.send(message);
+                        
+                        // Show our own message
+                        addMessage({
+                            type: 'user_message',
+                            from: 'You',
+                            message: message
+                        });
+                        
+                        messageInput.value = '';
+                    }
+                }
+            }
+
+            sendButton.onclick = sendMessage;
+            
+            messageInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            // Connect on page load
+            connect();
         </script>
     </body>
 </html>
